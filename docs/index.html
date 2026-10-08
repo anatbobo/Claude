@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>יומן עבודה קולי</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5d6673;
+    --border: #d8dde3; --accent: #1f6feb; --accent-text: #ffffff;
+    --rec: #d1242f; --ok: #1a7f37; --err: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --card: #171b21; --text: #e6e9ee; --muted: #9aa4b1;
+      --border: #2c333c; --accent: #4c8dff; --accent-text: #0f1216;
+      --rec: #ff5c5c; --ok: #3fb950; --err: #ff6b6b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216; --card: #171b21; --text: #e6e9ee; --muted: #9aa4b1;
+    --border: #2c333c; --accent: #4c8dff; --accent-text: #0f1216;
+    --rec: #ff5c5c; --ok: #3fb950; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.35rem; margin: 8px 0 16px; display: flex; justify-content: space-between; align-items: center; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .mic {
+    display: block; width: 132px; height: 132px; margin: 8px auto 12px; border-radius: 50%;
+    border: none; background: var(--accent); color: var(--accent-text); font-size: 3rem; cursor: pointer;
+  }
+  .mic.rec { background: var(--rec); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { transform: scale(1.06); } }
+  .hint { text-align: center; color: var(--muted); margin: 0 0 12px; font-size: .95rem; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea {
+    width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font: inherit;
+  }
+  textarea { min-height: 96px; resize: vertical; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; min-width: 0; }
+  .btn {
+    width: 100%; padding: 12px; margin-top: 14px; border-radius: 10px; border: none;
+    background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .icon-btn { background: none; border: none; color: var(--muted); font-size: 1.4rem; cursor: pointer; }
+  .status { min-height: 1.5em; text-align: center; font-size: .95rem; }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>יומן עבודה קולי <button class="icon-btn" id="settingsToggle" aria-label="הגדרות">⚙︎</button></h1>
+
+  <section class="card" id="settings" hidden>
+    <label for="apiUrl">כתובת ה-Web App (מ-Apps Script)</label>
+    <input id="apiUrl" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec">
+    <label for="token">קוד גישה (ACCESS_TOKEN)</label>
+    <input id="token" dir="ltr" type="password">
+    <button class="btn" id="saveSettings">שמירת הגדרות</button>
+  </section>
+
+  <section class="card">
+    <button class="mic" id="mic" aria-label="הקלטה">🎙</button>
+    <p class="hint" id="micHint">לחצו והקליטו, למשל: "היום עבדתי משמונה וחצי עד ארבע על הדוח ללקוח כהן"</p>
+    <label for="transcript">תמליל (אפשר לתקן או להקליד)</label>
+    <textarea id="transcript"></textarea>
+    <button class="btn" id="parseBtn">נתח</button>
+  </section>
+
+  <section class="card" id="review" hidden>
+    <div class="row">
+      <div><label for="f_date">תאריך</label><input id="f_date" type="date"></div>
+      <div><label for="f_hours">שעות</label><input id="f_hours" type="number" step="0.25" min="0" inputmode="decimal"></div>
+    </div>
+    <div class="row">
+      <div><label for="f_start">התחלה</label><input id="f_start" type="time"></div>
+      <div><label for="f_end">סיום</label><input id="f_end" type="time"></div>
+    </div>
+    <label for="f_project">פרויקט / לקוח</label><input id="f_project">
+    <label for="f_activity">פעילות</label><textarea id="f_activity"></textarea>
+    <label for="f_notes">הערות</label><input id="f_notes">
+    <button class="btn" id="saveBtn">שמירה לגיליון</button>
+    <button class="btn secondary" id="cancelBtn">ביטול</button>
+  </section>
+
+  <p class="status" id="status" role="status"></p>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  };
+
+  // Allow one-time setup via link: index.html#url=...&token=...
+  if (location.hash.length > 1) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (h.get('url')) store.set('worklog_url', h.get('url'));
+    if (h.get('token')) store.set('worklog_token', h.get('token'));
+    history.replaceState(null, '', location.pathname);
+  }
+  $('apiUrl').value = store.get('worklog_url');
+  $('token').value = store.get('worklog_token');
+  if (!$('apiUrl').value || !$('token').value) $('settings').hidden = false;
+
+  $('settingsToggle').onclick = () => { $('settings').hidden = !$('settings').hidden; };
+  $('saveSettings').onclick = () => {
+    store.set('worklog_url', $('apiUrl').value.trim());
+    store.set('worklog_token', $('token').value.trim());
+    $('settings').hidden = true;
+    setStatus('ההגדרות נשמרו', 'ok');
+  };
+
+  function setStatus(msg, kind) {
+    $('status').textContent = msg;
+    $('status').className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  async function call(payload) {
+    const url = $('apiUrl').value.trim();
+    if (!url) throw new Error('חסרה כתובת Web App בהגדרות');
+    payload.token = $('token').value.trim();
+    // text/plain body keeps this a "simple" CORS request (no preflight), which Apps Script requires.
+    const res = await fetch(url, { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'שגיאה');
+    return data;
+  }
+
+  // ---- Speech recognition (Hebrew) ----
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, recording = false, baseText = '';
+  if (!SR) {
+    $('mic').disabled = true;
+    $('micHint').textContent = 'הדפדפן לא תומך בזיהוי דיבור. השתמשו ב-Chrome (אנדרואיד/מחשב) או Safari (אייפון), או הקלידו/הכתיבו במקלדת.';
+  } else {
+    rec = new SR();
+    rec.lang = 'he-IL';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (ev) => {
+      let finalText = '', interim = '';
+      for (let i = 0; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        (r.isFinal ? (finalText += r[0].transcript + ' ') : (interim += r[0].transcript));
+      }
+      $('transcript').value = (baseText + ' ' + finalText + interim).trim();
+    };
+    rec.onerror = (ev) => {
+      setStatus(ev.error === 'not-allowed' ? 'אין הרשאה למיקרופון' : 'שגיאת הקלטה: ' + ev.error, 'err');
+    };
+    rec.onend = () => { recording = false; $('mic').classList.remove('rec'); };
+  }
+
+  $('mic').onclick = () => {
+    if (!rec) return;
+    if (recording) { rec.stop(); return; }
+    baseText = $('transcript').value.trim();
+    setStatus('מקליט… לחצו שוב לסיום');
+    recording = true;
+    $('mic').classList.add('rec');
+    rec.start();
+  };
+
+  // ---- Parse & save ----
+  const fields = { date: 'f_date', hours: 'f_hours', start_time: 'f_start', end_time: 'f_end',
+                   project: 'f_project', activity: 'f_activity', notes: 'f_notes' };
+
+  $('parseBtn').onclick = async () => {
+    if (recording) rec.stop();
+    const transcript = $('transcript').value.trim();
+    if (!transcript) { setStatus('אין טקסט לניתוח', 'err'); return; }
+    $('parseBtn').disabled = true;
+    setStatus('מנתח…');
+    try {
+      const { entry } = await call({ action: 'parse', transcript });
+      for (const k in fields) $(fields[k]).value = entry[k] || '';
+      $('review').hidden = false;
+      setStatus('בדקו ותקנו לפי הצורך, ואז שמרו');
+    } catch (e) {
+      setStatus(e.message, 'err');
+    } finally {
+      $('parseBtn').disabled = false;
+    }
+  };
+
+  $('saveBtn').onclick = async () => {
+    const entry = { transcript: $('transcript').value.trim() };
+    for (const k in fields) entry[k] = $(fields[k]).value.trim();
+    if (!entry.date) { setStatus('חסר תאריך', 'err'); return; }
+    $('saveBtn').disabled = true;
+    setStatus('שומר…');
+    try {
+      const { row } = await call({ action: 'save', entry });
+      setStatus('נשמר בשורה ' + row + ' ✓', 'ok');
+      $('review').hidden = true;
+      $('transcript').value = '';
+    } catch (e) {
+      setStatus(e.message, 'err');
+    } finally {
+      $('saveBtn').disabled = false;
+    }
+  };
+
+  $('cancelBtn').onclick = () => { $('review').hidden = true; setStatus(''); };
+})();
+</script>
+</body>
+</html>
