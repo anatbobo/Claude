@@ -68,6 +68,8 @@
     <input id="apiUrl" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec">
     <label for="token">קוד גישה (ACCESS_TOKEN)</label>
     <input id="token" dir="ltr" type="password">
+    <label for="projects">פרויקטים / לקוחות קבועים (שורה לכל אחד, משפר את הזיהוי)</label>
+    <textarea id="projects" placeholder="כהן&#10;בנק הפועלים"></textarea>
     <button class="btn" id="saveSettings">שמירת הגדרות</button>
   </section>
 
@@ -98,6 +100,7 @@
   <p class="status" id="status" role="status"></p>
 </main>
 
+<script src="parser.js"></script>
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -115,12 +118,15 @@
   }
   $('apiUrl').value = store.get('worklog_url');
   $('token').value = store.get('worklog_token');
+  const getProjects = () => store.get('worklog_projects').split('\n').map((p) => p.trim()).filter(Boolean);
+  $('projects').value = getProjects().join('\n');
   if (!$('apiUrl').value || !$('token').value) $('settings').hidden = false;
 
   $('settingsToggle').onclick = () => { $('settings').hidden = !$('settings').hidden; };
   $('saveSettings').onclick = () => {
     store.set('worklog_url', $('apiUrl').value.trim());
     store.set('worklog_token', $('token').value.trim());
+    store.set('worklog_projects', $('projects').value.trim());
     $('settings').hidden = true;
     setStatus('ההגדרות נשמרו', 'ok');
   };
@@ -180,22 +186,14 @@
   const fields = { date: 'f_date', hours: 'f_hours', start_time: 'f_start', end_time: 'f_end',
                    project: 'f_project', activity: 'f_activity', notes: 'f_notes' };
 
-  $('parseBtn').onclick = async () => {
+  $('parseBtn').onclick = () => {
     if (recording) rec.stop();
     const transcript = $('transcript').value.trim();
     if (!transcript) { setStatus('אין טקסט לניתוח', 'err'); return; }
-    $('parseBtn').disabled = true;
-    setStatus('מנתח…');
-    try {
-      const { entry } = await call({ action: 'parse', transcript });
-      for (const k in fields) $(fields[k]).value = entry[k] || '';
-      $('review').hidden = false;
-      setStatus('בדקו ותקנו לפי הצורך, ואז שמרו');
-    } catch (e) {
-      setStatus(e.message, 'err');
-    } finally {
-      $('parseBtn').disabled = false;
-    }
+    const entry = parseWorkLog(transcript, { projects: getProjects() });
+    for (const k in fields) $(fields[k]).value = entry[k] || '';
+    $('review').hidden = false;
+    setStatus(entry.hours ? 'בדקו ותקנו לפי הצורך, ואז שמרו' : 'לא זוהו שעות – מלאו ידנית', entry.hours ? '' : 'err');
   };
 
   $('saveBtn').onclick = async () => {
@@ -207,6 +205,13 @@
     try {
       const { row } = await call({ action: 'save', entry });
       setStatus('נשמר בשורה ' + row + ' ✓', 'ok');
+      // Remember new project names so they're recognised in full next time.
+      const known = getProjects();
+      if (entry.project && !known.includes(entry.project)) {
+        known.push(entry.project);
+        store.set('worklog_projects', known.join('\n'));
+        $('projects').value = known.join('\n');
+      }
       $('review').hidden = true;
       $('transcript').value = '';
     } catch (e) {

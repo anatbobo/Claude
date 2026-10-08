@@ -1,12 +1,11 @@
 /**
  * Voice work log — Google Apps Script backend.
  *
- * Bound to a Google Sheet. Receives a Hebrew transcript from the web page,
- * asks Claude to extract date / hours / activity, and appends a row.
+ * Bound to a Google Sheet. The web page parses the Hebrew voice note itself
+ * and sends the reviewed entry here; this script only appends the row.
  *
- * Script Properties (Project Settings → Script Properties):
- *   ANTHROPIC_API_KEY  – your Claude API key
- *   ACCESS_TOKEN       – any long random string; the web page must send it
+ * Script Property (Project Settings → Script Properties):
+ *   ACCESS_TOKEN – any long random string; the web page must send it
  */
 
 const SHEET_NAME = 'יומן עבודה';
@@ -14,7 +13,6 @@ const HEADERS = [
   'תאריך', 'יום', 'שעת התחלה', 'שעת סיום', 'שעות',
   'פרויקט / לקוח', 'פעילות', 'הערות', 'תמליל מקורי', 'נרשם ב-',
 ];
-const MODEL = 'claude-opus-5-5';
 const TZ = 'Asia/Jerusalem';
 const HEBREW_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
@@ -29,9 +27,6 @@ function doPost(e) {
     if (!req.token || req.token !== props.getProperty('ACCESS_TOKEN')) {
       return json_({ ok: false, error: 'Unauthorized' });
     }
-    if (req.action === 'parse') {
-      return json_({ ok: true, entry: parseTranscript_(req.transcript) });
-    }
     if (req.action === 'save') {
       return json_({ ok: true, row: saveEntry_(req.entry) });
     }
@@ -39,71 +34,6 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
   }
-}
-
-function parseTranscript_(transcript) {
-  if (!transcript || !transcript.trim()) throw new Error('Empty transcript');
-  const now = new Date();
-  const today = Utilities.formatDate(now, TZ, 'yyyy-MM-dd');
-  const weekday = HEBREW_DAYS[Number(Utilities.formatDate(now, TZ, 'u')) % 7];
-
-  const system =
-    'You turn short spoken Hebrew work-log notes into a structured timesheet entry. ' +
-    'Today is ' + today + ' (יום ' + weekday + '), timezone Israel. ' +
-    'Resolve relative dates (היום, אתמול, שלשום, ביום שני) to YYYY-MM-DD; default to today. ' +
-    'Times are HH:MM in 24h. Spoken times are working hours, so "משמונה וחצי עד ארבע" is 08:30–16:00. ' +
-    'If start and end are given, hours = the difference minus any break mentioned. ' +
-    'If only a duration is given, fill hours and leave start/end empty. ' +
-    'Write activity as a concise Hebrew summary of what was done. ' +
-    'Use an empty string for anything not mentioned and 0 for unknown hours. Do not invent details.';
-
-  const schema = {
-    type: 'object',
-    properties: {
-      date: { type: 'string', description: 'YYYY-MM-DD' },
-      start_time: { type: 'string', description: 'HH:MM or empty' },
-      end_time: { type: 'string', description: 'HH:MM or empty' },
-      hours: { type: 'number', description: 'Hours worked, decimal' },
-      project: { type: 'string', description: 'Client or project name, or empty' },
-      activity: { type: 'string', description: 'What was done, in Hebrew' },
-      notes: { type: 'string', description: 'Anything else worth recording, or empty' },
-    },
-    required: ['date', 'start_time', 'end_time', 'hours', 'project', 'activity', 'notes'],
-    additionalProperties: false,
-  };
-
-  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
-    method: 'post',
-    contentType: 'application/json',
-    muteHttpExceptions: true,
-    headers: {
-      'x-api-key': PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY'),
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'server-side-fallback-2026-07-01',
-    },
-    payload: JSON.stringify({
-      model: MODEL,
-      max_tokens: 4000,
-      fallbacks: 'default',
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: schema } },
-      system: system,
-      messages: [{ role: 'user', content: transcript }],
-    }),
-  });
-
-  const body = JSON.parse(res.getContentText());
-  if (res.getResponseCode() !== 200) {
-    throw new Error('Claude API ' + res.getResponseCode() + ': ' + (body.error && body.error.message));
-  }
-  if (body.stop_reason === 'refusal') throw new Error('Claude declined to process this note');
-  const text = body.content.filter(function (b) { return b.type === 'text'; })
-    .map(function (b) { return b.text; }).join('');
-  const entry = JSON.parse(text);
-  entry.transcript = transcript;
-  if (!entry.hours && entry.start_time && entry.end_time) {
-    entry.hours = hoursBetween_(entry.start_time, entry.end_time);
-  }
-  return entry;
 }
 
 function saveEntry_(entry) {
@@ -155,8 +85,7 @@ function json_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/** Run once from the editor to create the sheet and check the API key. */
-function setupAndTest() {
+/** Run once from the editor to create the sheet tab and approve permissions. */
+function setup() {
   getSheet_();
-  Logger.log(JSON.stringify(parseTranscript_('היום עבדתי משמונה וחצי עד ארבע על הדוח הרבעוני ללקוח כהן, כולל חצי שעה הפסקה'), null, 2));
 }
