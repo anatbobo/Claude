@@ -200,8 +200,8 @@
     $('saveBtn').disabled = true;
     setStatus('שומר…');
     try {
-      const { row } = await call({ action: 'save', entry });
-      setStatus('נשמר בשורה ' + row + ' ✓', 'ok');
+      const { sheet, row } = await call({ action: 'save', entry });
+      setStatus(sheet ? 'נשמר בגיליון "' + sheet + '" ✓' : 'נשמר בשורה ' + row + ' ✓', 'ok');
       // Remember new project names so they're recognised in full next time.
       const known = getProjects();
       if (entry.project && !known.includes(entry.project)) {

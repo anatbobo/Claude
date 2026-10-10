@@ -13,8 +13,20 @@ Phone browser (docs/index.html + docs/parser.js)
         │  POST {action: "save"}
         ▼
 Google Apps Script web app (worklog/apps-script/Code.gs), attached to your sheet
-  → new row in the "יומן עבודה" tab
+  → new row in that month's tab ("אוקטובר 2026"), sorted by date
 ```
+
+## The spreadsheet
+
+| Tab | What's in it |
+|---|---|
+| **סיכום** | One row per month: total hours and working days. Newest month first. |
+| **אוקטובר 2026**, **נובמבר 2026**, … | That month's entries. **Row 1 shows the month's total hours and working days** and updates with every entry, so at the end of the month it shows the final total. |
+
+- A new month's tab is created automatically when the first entry for that month is saved.
+- Entries go by **the date you worked**, not the day you recorded them. "אתמול" said on the 1st goes into the previous month's tab.
+- Rows are kept sorted by date and start time, so recording entries out of order is fine.
+- You can fix or delete rows by hand. The totals update automatically.
 
 | Part | Cost |
 |---|---|
@@ -54,7 +66,7 @@ Notes:
 3. Replace the contents of `Code.gs` with [`apps-script/Code.gs`](apps-script/Code.gs).
 4. Under **Project Settings** (⚙), tick *Show "appsscript.json" manifest file*, then replace that file's contents with [`apps-script/appsscript.json`](apps-script/appsscript.json).
 5. Under **Project Settings → Script Properties**, add `ACCESS_TOKEN` with a long random string you make up. It acts as the password for saving to your sheet.
-6. Pick `setup` in the function dropdown and click **Run**. Approve the permissions; the script can only access this one spreadsheet. This creates the "יומן עבודה" tab.
+6. Pick `setup` in the function dropdown and click **Run**. Approve the permissions; the script can only access this one spreadsheet. This creates the "סיכום" tab and this month's tab.
 7. Click **Deploy → New deployment → Web app**. Set *Execute as*: **Me** and *Who has access*: **Anyone**, then deploy. Copy the URL, which ends in `/exec`.
 
 > "Anyone" lets the page reach the script without a Google login. Every request must include your `ACCESS_TOKEN`, so nobody else can write to the sheet.
@@ -70,6 +82,12 @@ Open the page on your phone, tap ⚙, and paste the web app URL and the access t
 Alternatively, open it once with `…/index.html#url=<WEB_APP_URL>&token=<ACCESS_TOKEN>` and the page saves both and removes them from the address bar.
 
 Then use **Add to Home Screen** so it opens like an app.
+
+### Updating an existing installation
+If you set this up before monthly tabs existed:
+1. Replace `Code.gs` in Apps Script with the new version and save.
+2. Go to **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. The URL stays the same, so the phone needs no changes.
+3. Optional: to move entries from the old "יומן עבודה" tab into monthly tabs, pick `migrateOldLog` in the function dropdown and click **Run**. The old tab is renamed "יומן עבודה (הועבר)" rather than deleted; delete it yourself once you've checked.
 
 ## Usage
 1. Tap 🎙 and speak. Tap again to stop.
