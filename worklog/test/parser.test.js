@@ -1,6 +1,6 @@
 // Run: node worklog/test/parser.test.js
 const assert = require('assert');
-const { parseWorkLog } = require('../../docs/parser.js');
+const { parseWorkLog, mergeTranscripts } = require('../../docs/parser.js');
 
 const today = '2026-10-08T12:00:00'; // Thursday
 const projects = ['כהן', 'בנק הפועלים'];
@@ -43,19 +43,40 @@ const cases = [
    { start_time: '08:00', end_time: '16:00', hours: 8, project: 'אלפא', activity: 'בדיקות' }],
   ['ביום ראשון משבע בבוקר עד שלוש, שתי פגישות ודוחות',
    { date: '2026-10-04', start_time: '07:00', end_time: '15:00', hours: 8, activity: 'שתי פגישות ודוחות' }],
+  ['השמיני באוקטובר מ 9 עד 13 הדרכה',
+   { date: '2026-10-08', start_time: '09:00', end_time: '13:00', activity: 'הדרכה' }],
+  ['ה-3 לעשירי ארבע שעות ניירת',
+   { date: '2026-10-03', hours: 4, activity: 'ניירת' }],
   ['הכנת הצעת מחיר',
    { date: '2026-10-08', hours: 0, start_time: '', activity: 'הכנת הצעת מחיר' }],
 ];
 
+// Recorded on Android Chrome (2026-10-10): every result repeats the whole sentence so far.
+const ANDROID_RAW = 'פגישה פגישה של פגישה של שעה פגישה של שעה פגישה של שעה פגישה של שעה פגישה של שעה עם פגישה של שעה עם בקי פגישה של שעה עם בקי פגישה של שעה עם בקי ביום פגישה של שעה עם בקי ביום חמישי פגישה של שעה עם בקי ביום חמישי פגישה של שעה עם בקי ביום חמישי פגישה של שעה עם בקי ביום חמישי פגישה של שעה עם בקי ביום חמישי פגישה של שעה עם בקי ביום חמישי השמיני פגישה של שעה עם בקי ביום חמישי השמיני פגישה של שעה עם בקי ביום חמישי השמיני לעשירי פגישה של שעה עם בקי ביום חמישי השמיני לעשירי פגישה של שעה עם בקי ביום חמישי השמיני לעשירי פגישה של שעה עם בקי ביום חמישי השמיני לעשירי פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2 פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 ל-3:00 אחר פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 ל-3:00 אחר הצהריים פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 ל-3:00 אחר הצהריים';
+const SENTENCE = 'פגישה של שעה עם בקי ביום חמישי השמיני לעשירי בין השעות 2:00 ל-3:00 אחר הצהריים';
+const mergeCases = [
+  ['android cumulative results', ANDROID_RAW.split(/ (?=פגישה)/), SENTENCE],
+  ['desktop separate pieces', ['היום משמונה עד ארבע', ' ללקוח כהן', ' הכנת דוח'], 'היום משמונה עד ארבע ללקוח כהן הכנת דוח'],
+  ['same piece repeated', ['ישיבת צוות', 'ישיבת צוות'], 'ישיבת צוות'],
+];
+
 let failed = 0;
-for (const [input, expected] of cases) {
-  const got = parseWorkLog(input, { today, projects });
+for (const [name, pieces, expected] of mergeCases) {
+  const got = mergeTranscripts(pieces);
+  if (got === expected) console.log('✓ merge:', name);
+  else { failed++; console.log('✗ merge:', name, '\n   got:', got); }
+}
+cases.push(['(Android recording) ' + SENTENCE, { date: '2026-10-08', start_time: '14:00', end_time: '15:00', hours: 1, activity: 'פגישה עם בקי', notes: '' }, '2026-10-10T12:00:00']);
+
+for (const [label, expected, day] of cases) {
+  const input = label.replace(/^\(.*?\) /, '');
+  const got = parseWorkLog(input, { today: day || today, projects });
   try {
     for (const k in expected) assert.deepStrictEqual(got[k], expected[k], k);
-    console.log('✓', input);
+    console.log('✓', label);
   } catch (e) {
     failed++;
-    console.log('✗', input, '\n   field:', e.message, '\n   got:', JSON.stringify(got));
+    console.log('✗', label, '\n   field:', e.message, '\n   got:', JSON.stringify(got));
   }
 }
 console.log(failed ? failed + ' failed' : 'all passed');

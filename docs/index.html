@@ -159,12 +159,9 @@
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (ev) => {
-      let finalText = '', interim = '';
-      for (let i = 0; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        (r.isFinal ? (finalText += r[0].transcript + ' ') : (interim += r[0].transcript));
-      }
-      $('transcript').value = (baseText + ' ' + finalText + interim).trim();
+      const pieces = [];
+      for (let i = 0; i < ev.results.length; i++) pieces.push(ev.results[i][0].transcript);
+      $('transcript').value = (baseText + ' ' + mergeTranscripts(pieces)).trim();
     };
     rec.onerror = (ev) => {
       setStatus(ev.error === 'not-allowed' ? 'אין הרשאה למיקרופון' : 'שגיאת הקלטה: ' + ev.error, 'err');

@@ -23,6 +23,8 @@
     ['עשרה', 10], ['עשר', 10], ['אחת', 1], ['אחד', 1],
   ];
   const WEEKDAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  // Ordinal day/month, as in "השמיני לעשירי" (8th of October).
+  const ORDINALS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שביעי', 'שמיני', 'תשיעי', 'עשירי'];
   const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט',
                   'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
   const PM_WORDS = 'אחר הצהריים|אחרי הצהריים|אחה"צ|אחה״צ|בצהריים|בערב|בלילה';
@@ -84,26 +86,55 @@
     return t.replace(/\s+/g, ' ');
   }
 
+  function ordOrNum(x) {
+    const i = ORDINALS.indexOf(x);
+    return i >= 0 ? i + 1 : Number(x);
+  }
+
   function extractDate(t, today) {
+    const r = extractDateOnly(t, today);
+    // An explicit date wins; drop a weekday said alongside it ("ביום חמישי השמיני לעשירי").
+    if (r.explicit) {
+      r.text = r.text.replace(new RegExp('(?:^|\\s)(?:ב|ו?ב)?יום (' + WEEKDAYS.join('|') + ')(?=\\s|$)'), ' ');
+    }
+    return r;
+  }
+
+  function fromDayMonth(day, month, today) {
+    const date = new Date(today.getFullYear(), month - 1, day);
+    if (date > today) date.setFullYear(today.getFullYear() - 1);
+    return date;
+  }
+
+  function extractDateOnly(t, today) {
     let date = today, m;
+    const ORD = ORDINALS.join('|');
+
+    // "השמיני לעשירי", "ה 8 לעשירי", "השמיני ל 10", "ה 23 ל 10"
+    const dmRe = new RegExp('(?:^|\\s)(ב|ה|בה) ?(' + ORD + '|\\d{1,2}) ?[לב] ?(' + ORD + '|\\d{1,2})(?=$|[\\s,.])');
+    if ((m = t.match(dmRe)) && (ORDINALS.includes(m[2]) || ORDINALS.includes(m[3]) || m[1] === 'ה')) {
+      const day = ordOrNum(m[2]), month = ordOrNum(m[3]);
+      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+        return { date: fromDayMonth(day, month, today), text: t.replace(m[0], ' '), explicit: true };
+      }
+    }
 
     // Explicit dates: 5/10, 5.10.2026, "5 באוקטובר", "ה 5 לחודש"
     if ((m = t.match(/(?:^|\s)(?:[בה]|בתאריך|תאריך)?\s?(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?(?=\s|$)(?! ?שעות)/))) {
       let y = m[3] ? Number(m[3].length === 2 ? '20' + m[3] : m[3]) : today.getFullYear();
       date = new Date(y, Number(m[2]) - 1, Number(m[1]));
       if (!m[3] && date > today) date.setFullYear(y - 1);
-      return { date: date, text: t.replace(m[0], ' ') };
+      return { date: date, text: t.replace(m[0], ' '), explicit: true };
     }
-    const monthRe = new RegExp('(?:^|\\s)(?:[בה] )?(\\d{1,2}) ?[בל](' + MONTHS.join('|') + ')(?=\\s|$)');
+    const monthRe = new RegExp('(?:^|\\s)(?:[בה] ?)?(' + ORD + '|\\d{1,2}) ?[בל](' + MONTHS.join('|') + ')(?=\\s|$)');
     if ((m = t.match(monthRe))) {
-      date = new Date(today.getFullYear(), MONTHS.indexOf(m[2]), Number(m[1]));
-      if (date > today) date.setFullYear(today.getFullYear() - 1);
-      return { date: date, text: t.replace(m[0], ' ') };
+      date = fromDayMonth(ordOrNum(m[1]), MONTHS.indexOf(m[2]) + 1, today);
+      return { date: date, text: t.replace(m[0], ' '), explicit: true };
     }
     if ((m = t.match(/(?:^|\s)(?:[בה] )?(\d{1,2}) ?(?:לחודש|בחודש)(?=\s|$)/))) {
       date = new Date(today.getFullYear(), today.getMonth(), Number(m[1]));
       if (date > today) date.setMonth(date.getMonth() - 1);
-      return { date: date, text: t.replace(m[0], ' ') };
+      return { date: date, text: t.replace(m[0], ' '), explicit: true };
     }
 
     // Relative words
@@ -197,6 +228,8 @@
     do { prev = a; a = a.replace(LEADING_JUNK, '').trim(); } while (a !== prev);
     a = a.replace(/(\s[,.;:])+/g, function (m) { return m.trim(); }).replace(/^[,.\-–;:\s]+|[,\-–;:\s]+$/g, '');
     a = a.replace(/,\s*,/g, ',').replace(/\s+/g, ' ');
+    // A preposition left dangling by a removed phrase: "פגישה של [שעה] עם בקי" → "פגישה עם בקי"
+    a = a.replace(/(^|\s)(?:של|על|עם|ב|ל)(?=\s(?:ו?(?:של|על|עם|עבור|אצל))(?:\s|$))/g, '$1').replace(/\s+/g, ' ').trim();
     a = a.replace(/(\s(?:ו?(?:עם|של|על|עבור|אצל|ל|ב|כולל)))+$/, '').replace(/[,\s]+$/, '');
     return a;
   }
@@ -219,7 +252,7 @@
 
     const notes = [];
     if (brk.hours) notes.push('הפסקה: ' + round2(brk.hours) + " ש'");
-    if (range && dur.hours) notes.push('נאמר גם: ' + dur.hours + ' שעות');
+    if (range && dur.hours && Math.abs(dur.hours - range.hours) > 0.01) notes.push('נאמר גם: ' + dur.hours + ' שעות');
 
     return {
       date: fmtDate(d.date),
@@ -232,6 +265,27 @@
     };
   }
 
+  /**
+   * Join speech-recognition results into one transcript. Chrome on Android sends each
+   * result as the whole sentence so far ("פגישה", "פגישה של", "פגישה של שעה", ...);
+   * desktop Chrome sends separate pieces. Handle both without repeating words.
+   */
+  function mergeTranscripts(segments) {
+    let acc = '';
+    for (const raw of segments) {
+      const s = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!s) continue;
+      if (!acc || s.startsWith(acc)) acc = s;                  // grew: replace
+      else if (acc.startsWith(s) || acc.endsWith(s)) continue;  // older / repeated piece
+      else if (s.length >= 8 && acc.slice(0, 8) === s.slice(0, 8)) acc = s; // revised from the start
+      else acc += ' ' + s;                                      // a genuinely new piece
+    }
+    return acc;
+  }
+
   root.parseWorkLog = parseWorkLog;
-  if (typeof module !== 'undefined' && module.exports) module.exports = { parseWorkLog: parseWorkLog, normalize: normalize };
+  root.mergeTranscripts = mergeTranscripts;
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { parseWorkLog: parseWorkLog, normalize: normalize, mergeTranscripts: mergeTranscripts };
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
